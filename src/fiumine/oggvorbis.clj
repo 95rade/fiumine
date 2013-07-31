@@ -2,14 +2,6 @@
   "Provides some logical chunking of ogg vorbis streams."
   )
 
-(declare ogg-page!)
-
-(defn oggvorbis-stream
-  "???"
-  [stream]
-  (when-let [page (ogg-page! stream)]
-    (cons page (lazy-seq (oggvorbis-stream stream)))))
-
 (defn scan-for-page!
   "Scans ahead in Ogg Vorbis stream looking for capture sequence. After calling
    this function, the stream will either be at the beginning of an Ogg page, or
@@ -35,7 +27,9 @@
 
 (defn ogg-page!
   "Loads a single page from an Ogg stream into a byte array, returning the byte
-   array, or nil if at end of stream."
+   array, or nil if at end of stream.
+  
+   See: http://www.xiph.org/vorbis/doc/framing.html"
   [stream]
   (if (scan-for-page! stream)
     (do
@@ -50,3 +44,27 @@
         (.read stream buffer)
         buffer))
     nil))
+
+(defn- read-int-little-endian
+  "Reads an arbitrary sequence of bytes in little endian (least significant 
+   first) byte order and returns an int."
+  [bs]
+  (loop [remaining bs, shift 0, n 0] 
+    (if (empty? remaining) n
+      (recur (rest remaining) (+ shift 8) 
+             (+ n (bit-shift-left (first remaining) shift))))))
+
+(defn packet-type
+  "Assumes page data begins a new packet and returns the integer type of the
+   packet. This is not a valid assumption in general, but in practice this is a
+   useful function for finding the start of audio data in a stream, since there
+   are usually a handful of header pages and then the first audio packet starts
+   at the very beginning of the first non-header page."
+  [page]
+  (let [page-segments (aget page 26)]
+    (aget page (+ 27 page-segments))))
+
+(defn audio? 
+  "See comment about 'packet-type' above."
+  [page]
+  (= (packet-type page) 0))

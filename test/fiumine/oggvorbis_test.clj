@@ -38,4 +38,5 @@
           stream (io/input-stream url)
           ogg (oggvorbis-stream stream)
           pages (vec ogg)]
-      (is (= 142 (.size pages))))))
+      (is (= 142 (.size pages)))
+      (is (= [false false true] (map audio? (take 3 pages)))))))

@@ -1,6 +1,7 @@
 (ns fiumine.oggvorbis
   "Provides some logical chunking of ogg vorbis streams."
-  (:require [marshal.core :as marsh])
+  (:require [clojure.java.io :as io]
+            [marshal.core :as marsh])
   )
 
 (defn scan-for-page
@@ -65,3 +66,51 @@
                :packet-offset packet-offset
                :segments segments)))
     nil))
+
+(defn- partition-packet-segments
+  [segments]
+  (loop [partitions [] part [] remaining segments]
+    (if (empty? remaining) 
+      (filter (complement empty?) (conj partitions part))
+      (let [segment (first remaining)]
+        (if (= segment 0xff)
+          (recur partitions (conj part segment) (rest remaining))
+          (recur (conj partitions (conj part segment)) [] (rest remaining)))))))
+
+(defn vorbis-packets
+  "Marshals vorbis packets from an ogg page."
+  [page]
+  (let [partitions (partition-packet-segments (:segments page))
+        sizes (map #(apply + %) partitions)
+        stream (io/input-stream (:page-data page))]
+    (.skip stream (:packet-offset page))
+    (map (fn [size] 
+           (let [buffer (byte-array size)] 
+             (.read stream buffer)
+             buffer)) sizes)))
+
+(defn audio?
+  "Returns true if a vorbis packet is an audio packet. Only seems to be reliably
+   true for first audio packet."
+  [packet]
+  ; Least significant bit is zero for audio
+  (even? (first packet)))
+
+(def vorbis-id-struct
+  (marsh/struct
+    :type marsh/ubyte
+    :sentinel (marsh/ascii-string 6)
+    :version marsh/uint32
+    :channels marsh/ubyte
+    :framerate marsh/uint32))
+
+(defn vorbis-id
+  "Decodes id header, returning a map with the id structure.
+   See: http://xiph.org/vorbis/doc/Vorbis_I_spec.html#x1-600004.2"
+  [packet]
+  (let [stream (io/input-stream packet)
+        id (marsh/read stream vorbis-id-struct)]
+    (assert (= (:type id) 1))
+    (assert (= (:sentinel id) "vorbis"))
+    (assert (= (:version id) 0))
+    id))

@@ -56,5 +56,22 @@
       (is (= (range 5) (map :sequence-number pages)))
       (is (= [2 0 0 0 0] (map :flags pages)))
       (is (= [0 0 15424 30784 45440] (map :position pages)))
-      (is (= [1 28 33 30 33] (map :n-page-segments pages))))))
+      (is (= [1 28 33 30 33] (map :n-page-segments pages)))))
+
+  (testing "Test get packets."
+    (let [url (io/resource "fiumine/test.ogg")
+          stream (io/input-stream url)
+          ogg (oggvorbis-stream stream)
+          packets (flatten (map vorbis-packets ogg))]
+      (is (every? (complement audio?) (take 3 packets)))
+      (is (every? audio? (nthnext packets 3)))))
+
+  (testing "Marshal vorbis id header structure"
+    (let [url (io/resource "fiumine/test.ogg")
+          stream (io/input-stream url)
+          page (ogg-page stream)
+          packet (first (vorbis-packets page))
+          info (vorbis-id packet)]
+      (is (= 2 (:channels info)))
+      (is (= 44100 (:framerate info))))))
 

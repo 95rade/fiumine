@@ -14,23 +14,23 @@
 (defn oggvorbis-stream
   "Stream as sequence. Dangerous wrt memory. For testing only."
   [stream]
-  (when-let [page (ogg-page! stream)]
+  (when-let [page (ogg-page stream)]
     (cons page (lazy-seq (oggvorbis-stream stream)))))
 
 (deftest test-scan-for-page
   (testing "Scan for beginning of ogg page."
     (let [data "foobarOggSbazboo"
           stream (ByteArrayInputStream. (byte-array (map byte data)))]
-      (scan-for-page! stream)
+      (scan-for-page stream)
       (is (= "OggSbaz" (apply str (take 7 (char-seq stream))))))))
 
 (deftest test-ogg-page
   (testing "Test reading a page leaves stream on a page boundary."
     (let [url (io/resource "fiumine/test.ogg")
           stream (io/input-stream url)
-          page (ogg-page! stream)
+          page (ogg-page stream)
           header (fn [bs] (apply str (map char (take 4 bs))))]
-      (is (= "OggS" (header page)))
+      (is (= "OggS" (header (:page-data page))))
       (is (= "OggS" (header (char-seq stream))))))
 
   (testing "Test that we get right number of pages."
@@ -38,5 +38,23 @@
           stream (io/input-stream url)
           ogg (oggvorbis-stream stream)
           pages (vec ogg)]
-      (is (= 142 (.size pages)))
-      (is (= [false false true] (map audio? (take 3 pages)))))))
+      (is (= 142 (.size pages)))))
+
+  (testing "Test marshaling the page structure."
+    (let [url (io/resource "fiumine/test.ogg")
+          stream (io/input-stream url)
+          pages (take 5 (oggvorbis-stream stream))
+          page (first pages)]
+      (is (= "OggS" (:capture-pattern page)))
+      (is (= 0 (:structure-revision page)))
+      (is (= 2 (:flags page)))
+      (is (= 0 (:position page)))
+      (is (= 1389714903 (:serial-number page)))
+      (is (= 0 (:sequence-number page)))
+      (is (= 697906608 (:crc-checksum page)))
+      (is (= 1 (:n-page-segments page)))
+      (is (= (range 5) (map :sequence-number pages)))
+      (is (= [2 0 0 0 0] (map :flags pages)))
+      (is (= [0 0 15424 30784 45440] (map :position pages)))
+      (is (= [1 28 33 30 33] (map :n-page-segments pages))))))
+

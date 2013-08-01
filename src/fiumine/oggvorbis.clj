@@ -1,8 +1,9 @@
 (ns fiumine.oggvorbis
   "Provides some logical chunking of ogg vorbis streams."
+  (:require [marshal.core :as marsh])
   )
 
-(defn scan-for-page!
+(defn scan-for-page
   "Scans ahead in Ogg Vorbis stream looking for capture sequence. After calling
    this function, the stream will either be at the beginning of an Ogg page, or
    at the end of the stream."
@@ -23,48 +24,44 @@
               (.mark stream 4)
               (recur 0))))))))
 
-(def max-ogg-header-size (+ 0xff 28))
+(def ^:const max-ogg-header-size (+ 0xff 28))
 
-(defn ogg-page!
+(def ogg-page-struct
+  (marsh/struct 
+    :capture-pattern (marsh/ascii-string 4)
+    :structure-revision marsh/ubyte
+    :flags marsh/ubyte
+    :position marsh/sint64
+    :serial-number marsh/uint32
+    :sequence-number marsh/uint32
+    :crc-checksum marsh/uint32
+    :n-page-segments marsh/ubyte))
+
+(defn ogg-page
   "Loads a single page from an Ogg stream into a byte array, returning the byte
-   array, or nil if at end of stream.
+   array, or nil if at end of stream.  Returns a map of the marshalled structure
+   for the Ogg page.  The raw data appears as a byte array at the :page-data key
+   of the returned struct.  The offset in page data to packet data is found in 
+   the :packet-offset key.
   
    See: http://www.xiph.org/vorbis/doc/framing.html"
   [stream]
-  (if (scan-for-page! stream)
+  (if (scan-for-page stream)
     (do
       (.mark stream max-ogg-header-size)
-      ; Skip first 26 bytes
-      (dotimes [_ 26] (.read stream))
-      (let [page-segments (.read stream)
-            data-size (apply + (repeatedly page-segments #(.read stream)))
-            page-size (+ data-size page-segments 27)
+      (let [page (marsh/read stream ogg-page-struct)
+            n-page-segments (:n-page-segments page)
+            segments-struct (marsh/struct :segments
+                              (marsh/array marsh/ubyte n-page-segments))
+            segments (:segments (marsh/read stream segments-struct))
+            data-size (apply + segments)
+            packet-offset (+ n-page-segments 27)
+            page-size (+ data-size packet-offset)
             buffer (byte-array page-size)]
         (.reset stream)
         (.read stream buffer)
-        buffer))
+        (assoc page 
+               :page-data buffer 
+               :packet-offset packet-offset
+               :segments segments)))
     nil))
-
-(defn- read-int-little-endian
-  "Reads an arbitrary sequence of bytes in little endian (least significant 
-   first) byte order and returns an int."
-  [bs]
-  (loop [remaining bs, shift 0, n 0] 
-    (if (empty? remaining) n
-      (recur (rest remaining) (+ shift 8) 
-             (+ n (bit-shift-left (first remaining) shift))))))
-
-(defn packet-type
-  "Assumes page data begins a new packet and returns the integer type of the
-   packet. This is not a valid assumption in general, but in practice this is a
-   useful function for finding the start of audio data in a stream, since there
-   are usually a handful of header pages and then the first audio packet starts
-   at the very beginning of the first non-header page."
-  [page]
-  (let [page-segments (aget page 26)]
-    (aget page (+ 27 page-segments))))
-
-(defn audio? 
-  "See comment about 'packet-type' above."
-  [page]
-  (= (packet-type page) 0))

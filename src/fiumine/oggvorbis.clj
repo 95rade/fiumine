@@ -90,8 +90,7 @@
              buffer)) sizes)))
 
 (defn audio?
-  "Returns true if a vorbis packet is an audio packet. Only seems to be reliably
-   true for first audio packet."
+  "Returns true if a vorbis packet is an audio packet."
   [packet]
   ; Least significant bit is zero for audio
   (even? (first packet)))

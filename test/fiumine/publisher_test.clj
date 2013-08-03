@@ -8,15 +8,20 @@
 
 (defn noop [& args])
 
+(defn bslurp 
+  "Binary slurp."
+  [file]
+  (let [buffer (byte-array (.length file))]
+    (.read (io/input-stream file) buffer)
+    buffer))
+        
 (deftest test-publish-stream
   (with-redefs-fn
     {#'pub/sleep noop}
     (fn []
       (testing "Publish stream"
         ; Would be nice if clojure.core had a binary slurp
-        (let [file (io/file (io/resource "fiumine/test.ogg"))
-              raw-bytes (byte-array (.length file))
-              _ (.read (io/input-stream file) raw-bytes)
+        (let [raw-bytes (bslurp (io/file (io/resource "fiumine/test.ogg")))
               stream (io/input-stream raw-bytes)
               audio (atom [])]
           (add-watch pub/audio-page :test #(swap! audio conj %4))
@@ -35,9 +40,7 @@
     (fn []
       (testing "Subscribe to stream"
         ; Would be nice if clojure.core had a binary slurp
-        (let [file (io/file (io/resource "fiumine/test.ogg"))
-              raw-bytes (byte-array (.length file))
-              _ (.read (io/input-stream file) raw-bytes)
+        (let [raw-bytes (bslurp (io/file (io/resource "fiumine/test.ogg")))
               stream (io/input-stream raw-bytes)
               promise-to-stream (pub/subscribe)
               publisher (pub/publish-stream stream)

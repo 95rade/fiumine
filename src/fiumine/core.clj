@@ -30,4 +30,4 @@
   (let [folder (clojure.java.io/file path)
         audio-files (shuffle (get-audio-files folder))
         station (station/start-station audio-files)]
-      (station/pipe-stream station (clojure.java.io/output-stream "fufu"))))
+      (clojure.java.io/copy station (clojure.java.io/output-stream "fufu"))))

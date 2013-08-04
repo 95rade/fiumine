@@ -25,5 +25,6 @@
                 path (.getAbsolutePath file)
                 converter (sh/proc "sox" path "-t" "ogg" "-")]
             (pipe-stream (:out converter) pipe-in))
-          (recur (rest remaining)))))
+          (recur (rest remaining))))
+      (.close pipe-in))
     pipe-out))

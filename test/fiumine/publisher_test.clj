@@ -47,7 +47,7 @@
               pages @promise-to-stream
               seq-nos (map :sequence-number (take 10 pages))
               composed (->> pages (map :page-data) (apply concat) byte-array)]
-          (is (nil? @(pub/subscribe)))
+          (is (nil? @(pub/subscribe))) ; Test post-eos condition
           (is (= seq-nos (range 10)))
           (is (= (alength raw-bytes) (alength composed)))
           (is (= (vec (sha1 raw-bytes)) (vec (sha1 composed)))))))))

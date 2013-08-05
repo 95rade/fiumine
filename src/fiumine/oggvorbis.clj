@@ -1,8 +1,9 @@
 (ns fiumine.oggvorbis
   "Provides some logical chunking of ogg vorbis streams."
   (:require [clojure.java.io :as io]
+            [fiumine.oggcrc :as crc]
             [marshal.core :as marsh])
-  )
+  (:import java.io.ByteArrayOutputStream))
 
 (def ^:const ogg-capture-pattern "OggS")
 (def ^:const max-ogg-header-size (+ 0xff 28))
@@ -40,23 +41,39 @@
     :crc-checksum marsh/uint32
     :n-page-segments marsh/ubyte))
 
-(defprotocol OggPageProtocol
-  (verify-crc [self]))
+(defn verify-crc 
+  "Calculates the CRC checksum for a page and verifies that it matches the
+   the value of :crc-checksum in the page. Returns a boolean."
+  [page] 
+  ; Make copy of page data and set crc-checksum field to all zeros
+  (let [bs (byte-array (:page-data page))]
+    (aset-byte bs 22 0)
+    (aset-byte bs 23 0)
+    (aset-byte bs 24 0)
+    (aset-byte bs 25 0)
+    (= (:crc-checksum page) (crc/calculate-crc bs))))
 
-(defrecord OggPage [capture-pattern
-                    ogg-revision
-                    flags 
-                    position 
-                    serial-number
-                    sequence-number
-                    crc-checksum
-                    n-page-segments
-                    page-data
-                    packet-offset
-                    segments
-                    frames]
-  OggPageProtocol
-  (verify-crc [self] true))
+(defn- marshal-page
+  "Writes page data from the page dict back to the raw data byte array."
+  [page data]
+  (let [stream (ByteArrayOutputStream.)]
+    (marsh/write stream ogg-page-struct page)
+    (let [marshaled (.toByteArray stream)]
+      (dorun 
+        (map #(aset-byte data % (aget marshaled %)) 
+             (range (alength marshaled)))))))
+
+(defn modify-page
+  "Updates the page from the given dictionary and recalculates the CRC 
+  checksum."
+  [page dict]
+  (let [data (byte-array (:page-data page))
+        page (merge page dict {:crc-checksum 0 :page-data data})]
+    (marshal-page page data)
+    (let [crc-checksum (crc/calculate-crc data)
+          page (assoc page :crc-checksum crc-checksum)]
+      (marshal-page page data)
+      page)))
 
 (defn read-page
   "Loads a single page from an Ogg stream into a byte array, returning the byte
@@ -70,7 +87,7 @@
   (if (scan-for-page stream)
     (do
       (.mark stream max-ogg-header-size)
-      (let [page (merge (map->OggPage {}) (marsh/read stream ogg-page-struct))
+      (let [page (marsh/read stream ogg-page-struct)
             n-page-segments (:n-page-segments page)
             segments-struct (marsh/struct :segments
                               (marsh/array marsh/ubyte n-page-segments))

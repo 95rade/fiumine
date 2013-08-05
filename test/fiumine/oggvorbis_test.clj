@@ -24,7 +24,7 @@
       (scan-for-page stream)
       (is (= "OggSbaz" (apply str (take 7 (char-seq stream))))))))
 
-(deftest test-ogg-page
+(deftest test-read-page
   (testing "Test reading a page leaves stream on a page boundary."
     (let [url (io/resource "fiumine/test.ogg")
           stream (io/input-stream url)
@@ -73,5 +73,15 @@
           packet (first (vorbis-packets page))
           info (vorbis-id packet)]
       (is (= 2 (:channels info)))
-      (is (= 44100 (:framerate info))))))
+      (is (= 44100 (:framerate info)))))
 
+  (testing "Modify page"
+    (let [url (io/resource "fiumine/test.ogg")
+          stream (io/input-stream url)
+          page (read-page stream)
+          modified (modify-page page {:position 42 :sequence-number 6})
+          reconstituted (read-page (io/input-stream (:page-data modified)))]
+      (is (not= (:page-data page) (:page-data modified)))
+      (is (= (:position modified) 42))
+      (is (= (:sequence-number modified) 6))
+      (is (= (dissoc modified :page-data) (dissoc reconstituted :page-data))))))

@@ -4,6 +4,10 @@
             [marshal.core :as marsh])
   )
 
+(def ^:const ogg-capture-pattern "OggS")
+(def ^:const max-ogg-header-size (+ 0xff 28))
+(def ^:const ogg-revision 0)
+
 (defn scan-for-page
   "Scans ahead in Ogg Vorbis stream looking for capture sequence. After calling
    this function, the stream will either be at the beginning of an Ogg page, or
@@ -12,7 +16,7 @@
   (.mark stream 4)
   (loop [run 0]
     (let [ch (.read stream)
-          capture-sequence (map int "OggS")]
+          capture-sequence (map int ogg-capture-pattern)]
       (if (= ch -1) 
         nil
         (if (= run 4)
@@ -25,12 +29,10 @@
               (.mark stream 4)
               (recur 0))))))))
 
-(def ^:const max-ogg-header-size (+ 0xff 28))
-
 (def ogg-page-struct
   (marsh/struct 
     :capture-pattern (marsh/ascii-string 4)
-    :structure-revision marsh/ubyte
+    :ogg-revision marsh/ubyte
     :flags marsh/ubyte
     :position marsh/sint64
     :serial-number marsh/uint32
@@ -38,7 +40,25 @@
     :crc-checksum marsh/uint32
     :n-page-segments marsh/ubyte))
 
-(defn ogg-page
+(defprotocol OggPageProtocol
+  (verify-crc [self]))
+
+(defrecord OggPage [capture-pattern
+                    ogg-revision
+                    flags 
+                    position 
+                    serial-number
+                    sequence-number
+                    crc-checksum
+                    n-page-segments
+                    page-data
+                    packet-offset
+                    segments
+                    frames]
+  OggPageProtocol
+  (verify-crc [self] true))
+
+(defn read-page
   "Loads a single page from an Ogg stream into a byte array, returning the byte
    array, or nil if at end of stream.  Returns a map of the marshalled structure
    for the Ogg page.  The raw data appears as a byte array at the :page-data key
@@ -50,7 +70,7 @@
   (if (scan-for-page stream)
     (do
       (.mark stream max-ogg-header-size)
-      (let [page (marsh/read stream ogg-page-struct)
+      (let [page (merge (map->OggPage {}) (marsh/read stream ogg-page-struct))
             n-page-segments (:n-page-segments page)
             segments-struct (marsh/struct :segments
                               (marsh/array marsh/ubyte n-page-segments))
@@ -61,10 +81,13 @@
             buffer (byte-array page-size)]
         (.reset stream)
         (.read stream buffer)
-        (assoc page 
-               :page-data buffer 
-               :packet-offset packet-offset
-               :segments segments)))
+        (let [page (assoc page :page-data buffer 
+                               :packet-offset packet-offset
+                               :segments segments)]
+          (assert (= (:capture-pattern page) ogg-capture-pattern) "Not an Ogg page")
+          (assert (= (:ogg-revision page) ogg-revision) "Unknown Ogg revision")
+          (assert (verify-crc page) "Corrupt Ogg page")
+          page)))
     nil))
 
 (defn- partition-packet-segments

@@ -20,7 +20,7 @@
   [header-pages first-page]."
   [stream]
   (loop [headers []]
-    (let [page (ogg/ogg-page stream)
+    (let [page (ogg/read-page stream)
           packet (-> page ogg/vorbis-packets first)]
       (if (ogg/audio? packet)
         [headers page]
@@ -44,7 +44,7 @@
                 time-millis (* 1000 (/ samples framerate))]
             (reset! audio-page page)
             (sleep time-millis)
-            (recur (ogg/ogg-page stream) position))))
+            (recur (ogg/read-page stream) position))))
       (reset! audio-page :eos)
       (reset! streaming false))))
 

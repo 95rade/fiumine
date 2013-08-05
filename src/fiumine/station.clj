@@ -27,4 +27,4 @@
             (pipe-stream (:out converter) pipe-in))
           (recur (rest remaining))))
       (.close pipe-in))
-    pipe-out))
+    (java.io.BufferedInputStream. pipe-out)))

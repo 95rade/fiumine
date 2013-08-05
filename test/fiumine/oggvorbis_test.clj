@@ -14,7 +14,7 @@
 (defn oggvorbis-stream
   "Stream as sequence. Dangerous wrt memory. For testing only."
   [stream]
-  (when-let [page (ogg-page stream)]
+  (when-let [page (read-page stream)]
     (cons page (lazy-seq (oggvorbis-stream stream)))))
 
 (deftest test-scan-for-page
@@ -28,7 +28,7 @@
   (testing "Test reading a page leaves stream on a page boundary."
     (let [url (io/resource "fiumine/test.ogg")
           stream (io/input-stream url)
-          page (ogg-page stream)
+          page (read-page stream)
           header (fn [bs] (apply str (map char (take 4 bs))))]
       (is (= "OggS" (header (:page-data page))))
       (is (= "OggS" (header (char-seq stream))))))
@@ -46,7 +46,7 @@
           pages (take 5 (oggvorbis-stream stream))
           page (first pages)]
       (is (= "OggS" (:capture-pattern page)))
-      (is (= 0 (:structure-revision page)))
+      (is (= 0 (:ogg-revision page)))
       (is (= 2 (:flags page)))
       (is (= 0 (:position page)))
       (is (= 1389714903 (:serial-number page)))
@@ -69,7 +69,7 @@
   (testing "Marshal vorbis id header structure"
     (let [url (io/resource "fiumine/test.ogg")
           stream (io/input-stream url)
-          page (ogg-page stream)
+          page (read-page stream)
           packet (first (vorbis-packets page))
           info (vorbis-id packet)]
       (is (= 2 (:channels info)))

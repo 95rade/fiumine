@@ -15,36 +15,32 @@
   "Stub for unit tests."
   (Thread/sleep millis))
 
-(defn- grab-headers
-  "Grabs headers and first audio page from a stream. Returns 
-  [header-pages first-page]."
-  [stream]
-  (loop [headers []]
-    (let [page (ogg/read-page stream)
-          packet (-> page ogg/vorbis-packets first)]
+(defn- skip-headers
+  "Skips headers at the head of an ogg-stream. Returns first audio page or nil
+   if end of stream."
+  [ogg-stream]
+  (when-let [page (ogg/next-page ogg-stream)]
+    (let [packet (-> page ogg/packets first)]
       (if (ogg/audio? packet)
-        [headers page]
-        (recur (conj headers page))))))
+        page
+        (recur ogg-stream)))))
 
 (defn publish-stream
   "Publishes stream to global vars, assumes subscribers have registered watches 
    on 'audio-page'. Spins up a new thread."
   [stream]
-  ; Start by grabbing header pages
-  (let [[headers first-page] (grab-headers stream)
-        info (-> headers first ogg/vorbis-packets first ogg/vorbis-id)
-        framerate (:framerate info)]
-    (reset! header-pages headers)
+  (let [ogg-stream (ogg/read-stream stream)
+        first-page (skip-headers ogg-stream)
+        framerate (:framerate ogg-stream)]
+    (reset! header-pages @(:headers ogg-stream))
     (reset! streaming true)
     (future ; Pump out the audio in another thread
-      (loop [page first-page last-position (:position page)]
+      (loop [page first-page]
         (when page
-          (let [position (:position page)
-                samples (- position last-position)
-                time-millis (* 1000 (/ samples framerate))]
+          (let [millis (* 1000 (/ (:frames page) framerate))]
             (reset! audio-page page)
-            (sleep time-millis)
-            (recur (ogg/read-page stream) position))))
+            (sleep millis)
+            (recur (ogg/next-page ogg-stream)))))
       (reset! audio-page :eos)
       (reset! streaming false))))
 
@@ -64,16 +60,29 @@
         connected (atom true)]
     ; Watch to execute every time audio-page is swapped
     (when (not (false? @streaming))
-      (add-watch audio-page id 
-        (fn [id _ _ page]
-          (if (zero? (.remainingCapacity queue))
-            ; Disconnect watcher if subscriber is no longer pulling pages
-            ; Maybe they disconnected.
-            (do
-              (remove-watch audio-page id)
-              (reset! connected false))
-            ; Deliver page to queue
-            (.add queue page)))))
+      (let [sequence-number (atom nil)
+            position (atom 0)]
+        (add-watch audio-page id 
+          (fn [id _ _ page]
+            (when (nil? @sequence-number)
+              (reset! sequence-number (.size @header-pages)))
+            (if (zero? (.remainingCapacity queue))
+              (do
+                ; Disconnect watcher if subscriber is no longer pulling pages
+                ; Maybe they disconnected.
+                (remove-watch audio-page id)
+                (reset! connected false))
+              (do 
+                ; Deliver page to queue after adjusting sequence and position
+                (if (= :eos page)
+                  (.add queue :eos)
+                  (let [next-position (+ @position (:frames page))
+                        page (ogg/modify-page page 
+                               {:sequence-number @sequence-number
+                                :position next-position})]
+                    (swap! sequence-number inc)
+                    (reset! position next-position)
+                    (.add queue page)))))))))
 
     ; Lazy sequence to realize stream from queue
     (let [stream-pages 

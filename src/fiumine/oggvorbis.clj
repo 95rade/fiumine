@@ -177,7 +177,8 @@
   (let [[headers first-page] (grab-headers stream)
         info (-> headers first packets first get-info)
         pages (concat (conj headers first-page) (stream-pages stream))]
-    (assoc info :pages (ref pages) 
+    (assoc info :headers (ref headers)
+                :pages (ref pages) 
                 :position (ref 0))))
 
 (defn next-page

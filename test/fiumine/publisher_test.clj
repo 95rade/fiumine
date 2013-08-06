@@ -22,6 +22,7 @@
       (testing "Publish stream"
         ; Would be nice if clojure.core had a binary slurp
         (let [raw-bytes (bslurp (io/file (io/resource "fiumine/test.ogg")))
+              ; Add some crap to the beginning to test seeking to capture pattern
               stream (io/input-stream raw-bytes)
               audio (atom [])]
           (add-watch pub/audio-page :test #(swap! audio conj %4))

@@ -9,7 +9,26 @@
 (def ^:const max-ogg-header-size (+ 0xff 28))
 (def ^:const ogg-revision 0)
 
-(defn scan-for-page
+(def ogg-page-struct
+  (marsh/struct 
+    :capture-pattern (marsh/ascii-string 4)
+    :ogg-revision marsh/ubyte
+    :flags marsh/ubyte
+    :position marsh/sint64
+    :serial-number marsh/uint32
+    :sequence-number marsh/uint32
+    :crc-checksum marsh/uint32
+    :n-page-segments marsh/ubyte))
+
+(def vorbis-id-struct
+  (marsh/struct
+    :type marsh/ubyte
+    :sentinel (marsh/ascii-string 6)
+    :version marsh/uint32
+    :channels marsh/ubyte
+    :framerate marsh/uint32))
+
+(defn- scan-for-page
   "Scans ahead in Ogg Vorbis stream looking for capture sequence. After calling
    this function, the stream will either be at the beginning of an Ogg page, or
    at the end of the stream."
@@ -30,18 +49,7 @@
               (.mark stream 4)
               (recur 0))))))))
 
-(def ogg-page-struct
-  (marsh/struct 
-    :capture-pattern (marsh/ascii-string 4)
-    :ogg-revision marsh/ubyte
-    :flags marsh/ubyte
-    :position marsh/sint64
-    :serial-number marsh/uint32
-    :sequence-number marsh/uint32
-    :crc-checksum marsh/uint32
-    :n-page-segments marsh/ubyte))
-
-(defn verify-crc 
+(defn- verify-crc 
   "Calculates the CRC checksum for a page and verifies that it matches the
    the value of :crc-checksum in the page. Returns a boolean."
   [page] 
@@ -117,7 +125,7 @@
           (recur partitions (conj part segment) (rest remaining))
           (recur (conj partitions (conj part segment)) [] (rest remaining)))))))
 
-(defn vorbis-packets
+(defn packets
   "Marshals vorbis packets from an ogg page."
   [page]
   (let [partitions (partition-packet-segments (:segments page))
@@ -135,15 +143,7 @@
   ; Least significant bit is zero for audio
   (even? (first packet)))
 
-(def vorbis-id-struct
-  (marsh/struct
-    :type marsh/ubyte
-    :sentinel (marsh/ascii-string 6)
-    :version marsh/uint32
-    :channels marsh/ubyte
-    :framerate marsh/uint32))
-
-(defn vorbis-id
+(defn get-info
   "Decodes id header, returning a map with the id structure.
    See: http://xiph.org/vorbis/doc/Vorbis_I_spec.html#x1-600004.2"
   [packet]
@@ -152,4 +152,48 @@
     (assert (= (:type id) 1))
     (assert (= (:sentinel id) "vorbis"))
     (assert (= (:version id) 0))
-    id))
+    (dissoc id :type :sentinel :version)))
+
+(defn- grab-headers
+  "Grabs headers and first audio page from a stream. Returns 
+  [header-pages first-page]."
+  [stream]
+  (loop [headers []]
+    (let [page (read-page stream)
+          packet (-> page packets first)]
+      (if (audio? packet)
+        [headers page]
+        (recur (conj headers page))))))
+
+(defn- stream-pages
+  "Lazy sequence of pages from stream."
+  [stream]
+  (when-let [page (read-page stream)]
+    (cons page (lazy-seq (stream-pages stream)))))
+
+(defn read-stream
+  "Provides a structure for reading a stream a page at a time."
+  [stream]
+  (let [[headers first-page] (grab-headers stream)
+        info (-> headers first packets first get-info)
+        pages (concat (conj headers first-page) (stream-pages stream))]
+    (assoc info :pages (ref pages) 
+                :position (ref 0))))
+
+(defn next-page
+  [ogg-stream]
+  "Gets the next page from the ogg-stream, or nil if at end of the stream."
+  ; Transactional memory is probably overkill given intended usage.  Not sure
+  ; what the culture would mandate here.  Technically, we do require 
+  ; consistency, so it's not a bad thing to guarantee it, although a particular 
+  ; ogg-stream should never be consumed by more than one consumer.
+  (dosync
+    (let [pages (:pages ogg-stream)
+          position (:position ogg-stream)]
+    (if (empty? @pages)
+      nil
+      (let [page (first @pages)
+            frames (- (:position page) @position)]
+        (alter pages rest)
+        (ref-set position (:position page))
+        (assoc page :frames frames))))))

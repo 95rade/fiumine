@@ -12,17 +12,19 @@
       (cons (char ch) (lazy-seq (char-seq stream))))))
 
 (defn oggvorbis-stream
-  "Stream as sequence. Dangerous wrt memory. For testing only."
   [stream]
   (when-let [page (read-page stream)]
     (cons page (lazy-seq (oggvorbis-stream stream)))))
 
-(deftest test-scan-for-page
-  (testing "Scan for beginning of ogg page."
-    (let [data "foobarOggSbazboo"
-          stream (ByteArrayInputStream. (byte-array (map byte data)))]
-      (scan-for-page stream)
-      (is (= "OggSbaz" (apply str (take 7 (char-seq stream))))))))
+(defn bslurp 
+  "Binary slurp."
+  [file]
+  (let [buffer (byte-array (.length file))]
+    (.read (io/input-stream file) buffer)
+    buffer))
+ 
+(defn sha1 [data]
+  (.digest (java.security.MessageDigest/getInstance "sha1") data ))
 
 (deftest test-read-page
   (testing "Test reading a page leaves stream on a page boundary."
@@ -62,7 +64,7 @@
     (let [url (io/resource "fiumine/test.ogg")
           stream (io/input-stream url)
           ogg (oggvorbis-stream stream)
-          packets (flatten (map vorbis-packets ogg))]
+          packets (flatten (map packets ogg))]
       (is (every? (complement audio?) (take 3 packets)))
       (is (every? audio? (nthnext packets 3)))))
 
@@ -70,8 +72,8 @@
     (let [url (io/resource "fiumine/test.ogg")
           stream (io/input-stream url)
           page (read-page stream)
-          packet (first (vorbis-packets page))
-          info (vorbis-id packet)]
+          packet (first (packets page))
+          info (get-info packet)]
       (is (= 2 (:channels info)))
       (is (= 44100 (:framerate info)))))
 
@@ -85,3 +87,26 @@
       (is (= (:position modified) 42))
       (is (= (:sequence-number modified) 6))
       (is (= (dissoc modified :page-data) (dissoc reconstituted :page-data))))))
+
+(defn ogg-stream-pages
+  [ogg-stream]
+  (when-let [page (next-page ogg-stream)]
+    (cons page (lazy-seq (ogg-stream-pages ogg-stream)))))
+
+(deftest test-read-stream
+  (testing "Test reading of stream"
+    (let [raw-bytes (bslurp (io/file (io/resource "fiumine/test.ogg")))
+          ; Add some crap to the beginning to test seeking to capture pattern
+          stream (io/input-stream 
+                   (byte-array (concat (.getBytes "skipme") raw-bytes)))
+          ogg-stream (read-stream stream)
+          pages (ogg-stream-pages ogg-stream)
+          frame-counts (map :frames (take 5 pages))
+          seq-nos (map :sequence-number (take 10 pages))
+          composed (->> pages (map :page-data) (apply concat) byte-array)]
+      (is (= 2 (:channels ogg-stream)))
+      (is (= 44100 (:framerate ogg-stream)))
+      (is (= [0 0 15424 15360 14656] frame-counts))
+      (is (= (range 10) seq-nos))
+      (is (= (alength raw-bytes) (alength composed)))
+      (is (= (vec (sha1 raw-bytes)) (vec (sha1 composed)))))))

@@ -30,7 +30,7 @@
 (defn -main
   [path & args]
   (let [folder (clojure.java.io/file path)
-        audio-files (shuffle (get-audio-files folder))
+        audio-files (cycle (shuffle (get-audio-files folder)))
         station (station/start-station audio-files)]
     (publisher/publish-stream station)
     (service/start 6543)))

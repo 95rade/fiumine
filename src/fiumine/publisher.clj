@@ -11,6 +11,8 @@
 ; Used to signal that stream being published has reached eos
 (def streaming (atom nil))
 
+(def now #(System/currentTimeMillis))
+
 (defn sleep [millis]
   "Stub for unit tests."
   (Thread/sleep millis))
@@ -20,10 +22,9 @@
    if end of stream."
   [ogg-stream]
   (when-let [page (ogg/next-page ogg-stream)]
-    (let [packet (-> page ogg/packets first)]
-      (if (ogg/audio? packet)
-        page
-        (recur ogg-stream)))))
+    (if (ogg/header? page)
+      (recur ogg-stream)
+      page)))
 
 (defn publish-stream
   "Publishes stream to global vars, assumes subscribers have registered watches 
@@ -31,22 +32,28 @@
   [stream]
   (let [ogg-stream (ogg/read-stream stream)
         first-page (skip-headers ogg-stream)
-        framerate (:framerate ogg-stream)]
+        framerate (:framerate ogg-stream)
+        start-time (now)]
     (reset! header-pages @(:headers ogg-stream))
     (reset! streaming true)
     (future ; Pump out the audio in another thread
-      (loop [page first-page]
-        (when page
-          (let [millis (* 1000 (/ (:frames page) framerate))]
-            (reset! audio-page page)
-            (sleep millis)
-            (recur (ogg/next-page ogg-stream)))))
-      (reset! audio-page :eos)
-      (reset! streaming false))))
+      (try
+        (loop [page first-page]
+          (when page
+            (let [ogg-time (double (* 1000 (/ (:position page) framerate)))
+                  real-time (- (now) start-time)
+                  sleep-for (- ogg-time real-time)]
+              (reset! audio-page page)
+              (when (pos? sleep-for)
+                (sleep sleep-for))
+              (recur (ogg/next-page ogg-stream)))))
+        (reset! audio-page :eos)
+        (reset! streaming false)
+        (catch Exception e (prn e))))))
 
 (def serial (atom 0))
 
-(def ^:const queue-size 200)
+(def ^:const queue-size 10)
 
 (defn subscribe
   "Creates a blocking queue for publishing pages from stream and subscribes

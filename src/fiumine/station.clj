@@ -16,15 +16,17 @@
   "Takes a sequence of audio files as an input and returns an input stream which
    provides an ogg/vorbis stream."
   [files]
-  (let [pipe-in (java.io.PipedOutputStream.)
-        pipe-out (java.io.PipedInputStream. pipe-in)]
+  (let [encoder (sh/proc "oggenc" "--raw" "-")]
     (future
-      (loop [remaining files]
-        (when (not (empty? remaining))
-          (let [file (first remaining)
-                path (.getAbsolutePath file)
-                converter (sh/proc "sox" path "-t" "ogg" "-")]
-            (pipe-stream (:out converter) pipe-in))
-          (recur (rest remaining))))
-      (.close pipe-in))
-    (java.io.BufferedInputStream. pipe-out)))
+      (try
+        (loop [remaining files]
+          (when (not (empty? remaining))
+            (let [file (first remaining)
+                  path (.getAbsolutePath file)
+                  decoder (sh/proc "sox" path "-t" "raw" "-")]
+              (println path)
+              (pipe-stream (:out decoder) (:in encoder)))
+            (recur (rest remaining))))
+        (.close (:in encoder))
+        (catch Exception e (prn (str e)))))
+    (:out encoder)))

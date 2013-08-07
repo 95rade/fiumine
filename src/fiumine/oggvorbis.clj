@@ -28,6 +28,17 @@
     :channels marsh/ubyte
     :framerate marsh/uint32))
 
+(defn- read-into
+  "Reads until byte array is full or end of stream is reached."
+  [buffer stream]
+  (let [len (alength buffer)]
+    (loop [pos 0]
+      (when (< pos len)
+        (let [remainder (- len pos)
+              n (.read stream buffer pos remainder)]
+          (when (not= n -1)
+            (recur (+ pos n))))))))
+
 (defn- scan-for-page
   "Scans ahead in Ogg Vorbis stream looking for capture sequence. After calling
    this function, the stream will either be at the beginning of an Ogg page, or
@@ -83,7 +94,7 @@
       (marshal-page page data)
       page)))
 
-(defn read-page
+(defn- read-page
   "Loads a single page from an Ogg stream into a byte array, returning the byte
    array, or nil if at end of stream.  Returns a map of the marshalled structure
    for the Ogg page.  The raw data appears as a byte array at the :page-data key
@@ -105,7 +116,7 @@
             page-size (+ data-size packet-offset)
             buffer (byte-array page-size)]
         (.reset stream)
-        (.read stream buffer)
+        (read-into buffer stream)
         (let [page (assoc page :page-data buffer 
                                :packet-offset packet-offset
                                :segments segments)]
@@ -126,7 +137,12 @@
           (recur (conj partitions (conj part segment)) [] (rest remaining)))))))
 
 (defn packets
-  "Marshals vorbis packets from an ogg page."
+  "Marshals vorbis packets from an ogg page. Does not take into account packets
+   split across pages.  The only packet we're interested in deocding, so far,
+   is the id packet which seems to always be the one and only packet in the
+   first page.  Anything more sophisticated will require extracting a packet
+   stream from a page stream, taking into account that packets might span 
+   page boundaries."
   [page]
   (let [partitions (partition-packet-segments (:segments page))
         sizes (map #(apply + %) partitions)
@@ -134,7 +150,7 @@
     (.skip stream (:packet-offset page))
     (map (fn [size] 
            (let [buffer (byte-array size)] 
-             (.read stream buffer)
+             (read-into buffer stream)
              buffer)) sizes)))
 
 (defn audio?
@@ -142,6 +158,17 @@
   [packet]
   ; Least significant bit is zero for audio
   (even? (first packet)))
+
+(defn header?
+  "Returns true if page is a header page. The most surefire way to know is if 
+   the position field is set to 0.  This is actuall safer than examining the
+   packets to see if they are audio, since we don't yet take into account 
+   packets which span page boundaries, so we might end up examining an 
+   incomplete packet and get a spurious result."
+  [page]
+  (= (:position page) 0))
+
+(def not-header? (complement header?))
 
 (defn get-info
   "Decodes id header, returning a map with the id structure.
@@ -159,9 +186,8 @@
   [header-pages first-page]."
   [stream]
   (loop [headers []]
-    (let [page (read-page stream)
-          packet (-> page packets first)]
-      (if (audio? packet)
+    (let [page (read-page stream)]
+      (if (not-header? page)
         [headers page]
         (recur (conj headers page))))))
 

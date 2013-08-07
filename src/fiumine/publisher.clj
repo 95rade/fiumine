@@ -2,15 +2,8 @@
   "Publishes ogg/vorbis stream to any listening subscribers."
   (:require [fiumine.oggvorbis :as ogg]))
 
-; Current header pages will always be stored in this atom
-(def header-pages (atom nil))
-
-; Current audio page will be continuously refreshed at this atom
-(def audio-page (atom nil))
-
-; Used to signal that stream being published has reached eos
-(def streaming (atom nil))
-
+(def serial (atom 0))
+(def ^:const queue-size 10)
 (def now #(System/currentTimeMillis))
 
 (defn sleep [millis]
@@ -27,15 +20,16 @@
       page)))
 
 (defn publish-stream
-  "Publishes stream to global vars, assumes subscribers have registered watches 
-   on 'audio-page'. Spins up a new thread."
+  "Factory function which returns a 'published' structure which can be used to 
+   publish an ogg stream to many providers."
   [stream]
   (let [ogg-stream (ogg/read-stream stream)
+        headers (:headers ogg-stream)
         first-page (skip-headers ogg-stream)
         framerate (:framerate ogg-stream)
-        start-time (now)]
-    (reset! header-pages @(:headers ogg-stream))
-    (reset! streaming true)
+        start-time (now)
+        audio-page (atom nil)
+        streaming (atom true)]
     (future ; Pump out the audio in another thread
       (try
         (loop [page first-page]
@@ -49,11 +43,11 @@
               (recur (ogg/next-page ogg-stream)))))
         (reset! audio-page :eos)
         (reset! streaming false)
-        (catch Exception e (prn e))))))
+        (catch Exception e (prn e))))
 
-(def serial (atom 0))
-
-(def ^:const queue-size 10)
+    {:headers headers
+     :audio-page audio-page
+     :streaming streaming}))
 
 (defn subscribe
   "Creates a blocking queue for publishing pages from stream and subscribes
@@ -61,10 +55,13 @@
    Returns a promise which can be dereferenced into a lazy sequence that 
    realizes the queue page by page if and when streaming begins, or nil if
    streaming has already finished."
-  []
+  [published]
   (let [id (keyword (str "subscriber" (swap! serial inc)))
         queue (java.util.concurrent.ArrayBlockingQueue. queue-size)
-        connected (atom true)]
+        connected (atom true)
+        headers (:headers published)
+        streaming (:streaming published)
+        audio-page (:audio-page published)]
     ; Watch to execute every time audio-page is swapped
     (when (not (false? @streaming))
       (let [sequence-number (atom nil)
@@ -72,7 +69,7 @@
         (add-watch audio-page id 
           (fn [id _ _ page]
             (when (nil? @sequence-number)
-              (reset! sequence-number (.size @header-pages)))
+              (reset! sequence-number (.size @headers)))
             (if (zero? (.remainingCapacity queue))
               (do
                 ; Disconnect watcher if subscriber is no longer pulling pages
@@ -99,7 +96,7 @@
                 (let [page (.take queue)]
                   (when (not= :eos page)
                     (cons page (stream-pages)))))))
-          make-stream #(concat @header-pages (stream-pages))
+          make-stream #(concat @headers (stream-pages))
           promise-to-stream (promise)]
       (cond 
         ; If we're already streaming we can deliver promise immediately

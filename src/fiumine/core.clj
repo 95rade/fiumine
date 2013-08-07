@@ -32,5 +32,4 @@
   (let [folder (clojure.java.io/file path)
         audio-files (cycle (shuffle (get-audio-files folder)))
         station (station/start-station audio-files)]
-    (publisher/publish-stream station)
-    (service/start 6543)))
+    (service/start (publisher/publish-stream station) 6543)))

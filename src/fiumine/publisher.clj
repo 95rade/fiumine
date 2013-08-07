@@ -54,7 +54,9 @@
               (recur (ogg/next-page ogg-stream)))))
         (reset! audio-page :eos)
         (reset! streaming false)
-        (catch Exception e (prn e))))))
+        (catch Throwable e 
+          (prn e)
+          (throw e))))))
 
 (defn subscribe
   "Creates a blocking queue for publishing pages from stream and subscribes

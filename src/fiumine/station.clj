@@ -28,5 +28,7 @@
               (pipe-stream (:out decoder) (:in encoder)))
             (recur (rest remaining))))
         (.close (:in encoder))
-        (catch Exception e (prn (str e)))))
+        (catch Throwable e 
+          (prn e)
+          (throw e))))
     (:out encoder)))

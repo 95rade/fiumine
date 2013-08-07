@@ -14,7 +14,7 @@
         (when-let [page (first pages)]
           (.write out (:page-data page))
           (recur (rest pages))))
-      (catch Exception e 
+      (catch Throwable e 
         (prn e) 
         (throw e)))))
 

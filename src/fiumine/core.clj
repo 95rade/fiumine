@@ -28,10 +28,10 @@
   (filter audio-file? (flatten (get-all-files folder))))
 
 (defn -main
-  [path & args]
+  [path port & args]
   (let [folder (clojure.java.io/file path)
         audio-files (cycle (shuffle (get-audio-files folder)))
         station (station/start-station audio-files)
         publisher (pub/publish-stream station)]
     (pub/start publisher)
-    (service/start publisher 6543)))
+    (service/start publisher (Integer/parseInt port))))

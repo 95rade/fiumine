@@ -217,10 +217,10 @@
   (dosync
     (let [pages (:pages ogg-stream)
           position (:position ogg-stream)]
-    (if (empty? @pages)
-      nil
-      (let [page (first @pages)
-            frames (- (:position page) @position)]
-        (alter pages rest)
-        (ref-set position (:position page))
-        (assoc page :frames frames))))))
+      (if (empty? @pages)
+        nil
+        (let [page (first @pages)
+              frames (- (:position page) @position)]
+          (alter pages rest)
+          (ref-set position (:position page))
+          (assoc page :frames frames))))))

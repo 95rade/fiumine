@@ -11,11 +11,6 @@
     (when (not= ch -1)
       (cons (char ch) (lazy-seq (char-seq stream))))))
 
-(defn oggvorbis-stream
-  [stream]
-  (when-let [page (read-page stream)]
-    (cons page (lazy-seq (oggvorbis-stream stream)))))
-
 (defn bslurp 
   "Binary slurp."
   [file]
@@ -26,26 +21,17 @@
 (defn sha1 [data]
   (.digest (java.security.MessageDigest/getInstance "sha1") data ))
 
-(deftest test-read-page
-  (testing "Test reading a page leaves stream on a page boundary."
-    (let [url (io/resource "fiumine/test.ogg")
-          stream (io/input-stream url)
-          page (read-page stream)
-          header (fn [bs] (apply str (map char (take 4 bs))))]
-      (is (= "OggS" (header (:page-data page))))
-      (is (= "OggS" (header (char-seq stream))))))
-
+(deftest test-read-stream
   (testing "Test that we get right number of pages."
     (let [url (io/resource "fiumine/test.ogg")
-          stream (io/input-stream url)
-          ogg (oggvorbis-stream stream)
-          pages (vec ogg)]
+          stream (read-stream (io/input-stream url))
+          pages (vec (:pages stream))]
       (is (= 142 (.size pages)))))
 
   (testing "Test marshaling the page structure."
     (let [url (io/resource "fiumine/test.ogg")
-          stream (io/input-stream url)
-          pages (take 5 (oggvorbis-stream stream))
+          stream (read-stream (io/input-stream url))
+          pages (take 5 (:pages stream))
           page (first pages)]
       (is (= "OggS" (:capture-pattern page)))
       (is (= 0 (:ogg-revision page)))
@@ -62,27 +48,24 @@
 
   (testing "Test get packets."
     (let [url (io/resource "fiumine/test.ogg")
-          stream (io/input-stream url)
-          ogg (oggvorbis-stream stream)
-          packets (flatten (map packets ogg))]
+          stream (read-stream (io/input-stream url))
+          packets (flatten (map packets (:pages stream)))]
       (is (every? (complement audio?) (take 3 packets)))
       (is (every? audio? (nthnext packets 3)))))
 
   (testing "Marshal vorbis id header structure"
     (let [url (io/resource "fiumine/test.ogg")
-          stream (io/input-stream url)
-          page (read-page stream)
-          packet (first (packets page))
-          info (get-info packet)]
-      (is (= 2 (:channels info)))
-      (is (= 44100 (:framerate info)))))
+          stream (read-stream (io/input-stream url))]
+      (is (= 2 (:channels stream)))
+      (is (= 44100 (:framerate stream)))))
 
   (testing "Modify page"
     (let [url (io/resource "fiumine/test.ogg")
-          stream (io/input-stream url)
-          page (read-page stream)
+          stream (read-stream (io/input-stream url))
+          page (next-page stream)
           modified (modify-page page {:position 42 :sequence-number 6})
-          reconstituted (read-page (io/input-stream (:page-data modified)))]
+          reconstituted (next-page (read-stream 
+                                     (io/input-stream (:page-data modified))))]
       (is (not= (:page-data page) (:page-data modified)))
       (is (= (:position modified) 42))
       (is (= (:sequence-number modified) 6))

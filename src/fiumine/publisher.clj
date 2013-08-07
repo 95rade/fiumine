@@ -20,16 +20,27 @@
       page)))
 
 (defn publish-stream
-  "Factory function which returns a 'published' structure which can be used to 
+  "Factory function which returns a publisher structure which can be used to 
    publish an ogg stream to many providers."
   [stream]
   (let [ogg-stream (ogg/read-stream stream)
         headers (:headers ogg-stream)
-        first-page (skip-headers ogg-stream)
-        framerate (:framerate ogg-stream)
-        start-time (now)
         audio-page (atom nil)
         streaming (atom true)]
+    {:ogg-stream ogg-stream
+     :headers headers
+     :audio-page audio-page
+     :streaming streaming}))
+
+(defn start
+  "Begin publishing the stream."
+  [publisher]
+  (let [ogg-stream (:ogg-stream publisher)
+        audio-page (:audio-page publisher)
+        streaming (:streaming publisher)
+        framerate (:framerate ogg-stream)
+        first-page (skip-headers ogg-stream)
+        start-time (now)]
     (future ; Pump out the audio in another thread
       (try
         (loop [page first-page]
@@ -43,11 +54,7 @@
               (recur (ogg/next-page ogg-stream)))))
         (reset! audio-page :eos)
         (reset! streaming false)
-        (catch Exception e (prn e))))
-
-    {:headers headers
-     :audio-page audio-page
-     :streaming streaming}))
+        (catch Exception e (prn e))))))
 
 (defn subscribe
   "Creates a blocking queue for publishing pages from stream and subscribes
@@ -55,13 +62,13 @@
    Returns a promise which can be dereferenced into a lazy sequence that 
    realizes the queue page by page if and when streaming begins, or nil if
    streaming has already finished."
-  [published]
+  [publisher]
   (let [id (keyword (str "subscriber" (swap! serial inc)))
         queue (java.util.concurrent.ArrayBlockingQueue. queue-size)
         connected (atom true)
-        headers (:headers published)
-        streaming (:streaming published)
-        audio-page (:audio-page published)]
+        headers (:headers publisher)
+        streaming (:streaming publisher)
+        audio-page (:audio-page publisher)]
     ; Watch to execute every time audio-page is swapped
     (when (not (false? @streaming))
       (let [sequence-number (atom nil)

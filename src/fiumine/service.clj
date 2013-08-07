@@ -2,11 +2,11 @@
   "Web service."
   (:require [ring.adapter.jetty :as jetty]
             [ring.util.io :as io]
-            [fiumine.publisher :as publisher]))
+            [fiumine.publisher :as pub]))
 
-(defn- make-handler [published]
+(defn- make-handler [publisher]
   (defn- handler [request]
-    (let [pages @(publisher/subscribe published)]
+    (let [pages @(pub/subscribe publisher)]
       {:status 200
        :headers {"Content-Type" "application/ogg"}
        :body (io/piped-input-stream 
@@ -16,5 +16,5 @@
                      (.write out (:page-data page))
                      (recur (rest pages))))))})))
 
-(defn start [published port]
-  (jetty/run-jetty (make-handler published) {:port port :max-threads 5000}))
+(defn start [publisher port]
+  (jetty/run-jetty (make-handler publisher) {:port port :max-threads 1000}))

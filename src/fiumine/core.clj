@@ -1,6 +1,6 @@
 (ns fiumine.core
   "Simple music streamer."
-  (:require [fiumine.publisher :as publisher]
+  (:require [fiumine.publisher :as pub]
             [fiumine.service :as service]
             [fiumine.station :as station]
             [fiumine.utils :as utils])
@@ -31,5 +31,7 @@
   [path & args]
   (let [folder (clojure.java.io/file path)
         audio-files (cycle (shuffle (get-audio-files folder)))
-        station (station/start-station audio-files)]
-    (service/start (publisher/publish-stream station) 6543)))
+        station (station/start-station audio-files)
+        publisher (pub/publish-stream station)]
+    (pub/start publisher)
+    (service/start publisher 6543)))

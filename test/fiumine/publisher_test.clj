@@ -1,20 +1,11 @@
 (ns fiumine.publisher-test
   (:require [clojure.java.io :as io]
             [clojure.test :refer :all]
-            [fiumine.publisher :as pub]))
-
-(defn sha1 [data]
-  (.digest (java.security.MessageDigest/getInstance "sha1") data ))
+            [fiumine.publisher :as pub]
+            [fiumine.test-utils :refer :all]))
 
 (defn noop [& args])
-
-(defn bslurp 
-  "Binary slurp."
-  [file]
-  (let [buffer (byte-array (.length file))]
-    (.read (io/input-stream file) buffer)
-    buffer))
-        
+       
 (deftest test-subscribe-stream
   (with-redefs-fn
     {#'pub/sleep noop}

@@ -1,7 +1,8 @@
 (ns fiumine.oggvorbis-test
   (:require [clojure.java.io :as io]
             [clojure.test :refer :all]
-            [fiumine.oggvorbis :refer :all])
+            [fiumine.oggvorbis :refer :all]
+            [fiumine.test-utils :refer :all])
   (:import (java.io ByteArrayInputStream)))
 
 (defn char-seq
@@ -10,16 +11,6 @@
   (let [ch (.read stream)]
     (when (not= ch -1)
       (cons (char ch) (lazy-seq (char-seq stream))))))
-
-(defn bslurp 
-  "Binary slurp."
-  [file]
-  (let [buffer (byte-array (.length file))]
-    (.read (io/input-stream file) buffer)
-    buffer))
- 
-(defn sha1 [data]
-  (.digest (java.security.MessageDigest/getInstance "sha1") data ))
 
 (deftest test-read-stream
   (testing "Test that we get right number of pages."

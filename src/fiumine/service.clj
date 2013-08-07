@@ -10,11 +10,10 @@
   [pages]
   (fn [out]
     (try
-      (fn [out]
-        (loop [pages pages]
-          (when-let [page (first pages)]
-            (.write out (:page-data page))
-            (recur (rest pages)))))
+      (loop [pages pages]
+        (when-let [page (first pages)]
+          (.write out (:page-data page))
+          (recur (rest pages))))
       (catch Exception e 
         (prn e) 
         (throw e)))))

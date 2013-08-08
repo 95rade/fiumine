@@ -96,7 +96,7 @@
           (when (not= :eos page)
             (cons page (stream-pages))))))))
 
-  (defn subscribe
+(defn subscribe
   "Creates a blocking queue for publishing pages from stream and subscribes
    a watcher on the 'audio-page' atom for putting pages into the queue.
    Returns a promise which can be dereferenced into a lazy sequence that 

@@ -15,7 +15,7 @@
           (.write out (:page-data page))
           (recur (rest pages))))
       (catch Throwable e 
-        (prn e) 
+        (.printStackTrace e) 
         (throw e)))))
 
 (defn- make-handler [publisher]

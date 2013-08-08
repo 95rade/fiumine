@@ -5,7 +5,7 @@
 
 (defn pipe-stream
   [from to]
-  (let [buffer (byte-array 1024)]
+  (let [buffer (byte-array 4096)]
     (loop []
       (let [n (.read from buffer)]
         (when (not= n -1)
@@ -16,7 +16,7 @@
   "Takes a sequence of audio files as an input and returns an input stream which
    provides an ogg/vorbis stream."
   [files]
-  (let [encoder (sh/proc "oggenc" "--raw" "-")]
+  (let [encoder (sh/proc "oggenc" "--raw" "--quiet" "-")]
     (future
       (try
         (loop [remaining files]
@@ -29,6 +29,6 @@
             (recur (rest remaining))))
         (.close (:in encoder))
         (catch Throwable e 
-          (prn e)
+          (.printStackTrace e)
           (throw e))))
     (:out encoder)))

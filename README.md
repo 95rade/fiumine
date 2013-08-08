@@ -22,14 +22,28 @@ connections before players start stuttering which seems decent enough.
 
 ## Installation
 
-If you do not have Leiningen installed, download and install here: 
-http://leiningen.org/.
+You must have Java 6 or later installed on your system.  If you do not have 
+Leiningen installed, download and install here: http://leiningen.org/.
 
 Fiumine depends on two externally installed programs: sox and oggenc.  They are
 easily procured through the typical package managers. MP3 support for sox may
 be a separately installed package in your OS distribution.
 
+Get the project from GitHub:
+
     $ git clone https://github.com/chrisrossi/fiumine.git
+    $ cd fiumine
+
+Fiumine depends on a Clojure library, Marshal, that has an unreleased bug fix, 
+so it must be included by hand for the time being:
+
+    $ mkdir checkouts
+    $ cd checkouts
+    $ git clone https://github.com/russellc/Marshal.git
+    $ cd ..
+
+Leiningen will install any other dependencies the first time you run it:
+
     $ lein run /path/to/music/folder 8000
 
 Fiumine will recursively find music files in subfolders of your music folder, 

@@ -55,10 +55,48 @@
         (reset! audio-page :eos)
         (reset! streaming false)
         (catch Throwable e 
-          (prn e)
+          (.printStackTrace e)
           (throw e))))))
 
-(defn subscribe
+(defn- subscription-handler
+  "Returns a function that can be used as a watch handler to service a 
+   subscription."
+  [id queue connected headers audio-page]
+  (let [sequence-number (atom nil)
+        position (atom 0)]
+    (fn [id _ _ page]
+      (when (nil? @sequence-number)
+        (reset! sequence-number (.size @headers)))
+      (if (zero? (.remainingCapacity queue))
+        (do
+          ; Disconnect watcher if subscriber is no longer pulling pages
+          ; Maybe they disconnected.
+          (remove-watch audio-page id)
+          (reset! connected false))
+        (do 
+          ; Deliver page to queue after adjusting sequence and position
+          (if (= :eos page)
+            (.add queue :eos)
+            (let [next-position (+ @position (:frames page))
+                  page (ogg/modify-page page 
+                         {:sequence-number @sequence-number
+                          :position next-position})]
+              (swap! sequence-number inc)
+              (reset! position next-position)
+              (.add queue page))))))))
+
+(defn- page-streamer
+  "Returns a factory function which returns a function which returns a lazy
+   sequence of pages from a queue."
+  [connected queue]
+  (fn stream-pages []
+    (when @connected
+      (lazy-seq 
+        (let [page (.take queue)]
+          (when (not= :eos page)
+            (cons page (stream-pages))))))))
+
+  (defn subscribe
   "Creates a blocking queue for publishing pages from stream and subscribes
    a watcher on the 'audio-page' atom for putting pages into the queue.
    Returns a promise which can be dereferenced into a lazy sequence that 
@@ -71,40 +109,14 @@
         headers (:headers publisher)
         streaming (:streaming publisher)
         audio-page (:audio-page publisher)]
-    ; Watch to execute every time audio-page is swapped
+
     (when (not (false? @streaming))
-      (let [sequence-number (atom nil)
-            position (atom 0)]
-        (add-watch audio-page id 
-          (fn [id _ _ page]
-            (when (nil? @sequence-number)
-              (reset! sequence-number (.size @headers)))
-            (if (zero? (.remainingCapacity queue))
-              (do
-                ; Disconnect watcher if subscriber is no longer pulling pages
-                ; Maybe they disconnected.
-                (remove-watch audio-page id)
-                (reset! connected false))
-              (do 
-                ; Deliver page to queue after adjusting sequence and position
-                (if (= :eos page)
-                  (.add queue :eos)
-                  (let [next-position (+ @position (:frames page))
-                        page (ogg/modify-page page 
-                               {:sequence-number @sequence-number
-                                :position next-position})]
-                    (swap! sequence-number inc)
-                    (reset! position next-position)
-                    (.add queue page)))))))))
+      ; Call subscription handler every time audio-page gets a new value
+      (add-watch audio-page id 
+        (subscription-handler id queue connected headers audio-page)))
 
     ; Lazy sequence to realize stream from queue
-    (let [stream-pages 
-          (fn stream-pages []
-            (when @connected
-              (lazy-seq 
-                (let [page (.take queue)]
-                  (when (not= :eos page)
-                    (cons page (stream-pages)))))))
+    (let [stream-pages (page-streamer connected queue)
           make-stream #(concat @headers (stream-pages))
           promise-to-stream (promise)]
       (cond 

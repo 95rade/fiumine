@@ -6,15 +6,6 @@
             [fiumine.utils :as utils])
   (:gen-class))
 
-(defn get-all-files
-  "Recursively get all files in folder, returns a tree structure."
-  [folder]
-  (defn visit [f]
-    (if (.isDirectory f)
-      (get-all-files f)
-      f))
-  (map visit (filter (partial not= folder) (file-seq folder))))
-
 (def audio-file-extensions #{".flac" ".ogg" ".mp3"})
 
 (defn audio-file?
@@ -25,7 +16,7 @@
 (defn get-audio-files
   "For a given folder find all the files that look like audio files."
   [folder]
-  (filter audio-file? (flatten (get-all-files folder))))
+  (filter audio-file? (file-seq folder)))
 
 (defn -main
   [path port & args]

@@ -40,13 +40,15 @@
         streaming (:streaming publisher)
         framerate (:framerate ogg-stream)
         first-page (skip-headers ogg-stream)
-        start-time (now)]
+        start-time (atom (now))]
     (future ; Pump out the audio in another thread
       (try
         (loop [page first-page]
           (when page
+            (when (= (:sequence-number page) 0)
+              (reset! start-time (now)))
             (let [ogg-time (double (* 1000 (/ (:position page) framerate)))
-                  real-time (- (now) start-time)
+                  real-time (- (now) @start-time)
                   sleep-for (- ogg-time real-time)]
               (reset! audio-page page)
               (when (pos? sleep-for)
@@ -77,13 +79,18 @@
           ; Deliver page to queue after adjusting sequence and position
           (if (= :eos page)
             (.add queue :eos)
-            (let [next-position (+ @position (:frames page))
-                  page (ogg/modify-page page 
-                         {:sequence-number @sequence-number
-                          :position next-position})]
-              (swap! sequence-number inc)
-              (reset! position next-position)
-              (.add queue page))))))))
+            (do
+              (when (= (:sequence-number page) 0)
+                (do
+                  (reset! sequence-number 0)
+                  (reset! position 0)))
+              (let [next-position (+ @position (:frames page))
+                    page (ogg/modify-page page 
+                           {:sequence-number @sequence-number
+                            :position next-position})]
+                (swap! sequence-number inc)
+                (reset! position next-position)
+                (.add queue page)))))))))
 
 (defn- page-streamer
   "Returns a factory function which returns a function which returns a lazy

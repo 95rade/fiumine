@@ -204,6 +204,7 @@
         info (-> headers first packets first get-info)
         pages (concat (conj headers first-page) (stream-pages stream))]
     (assoc info :headers (ref headers)
+                :next-headers (ref [])
                 :pages (ref pages) 
                 :position (ref 0))))
 
@@ -216,11 +217,21 @@
   ; ogg-stream should never be consumed by more than one consumer.
   (dosync
     (let [pages (:pages ogg-stream)
-          position (:position ogg-stream)]
+          position (:position ogg-stream)
+          headers (:headers ogg-stream)
+          next-headers (:next-headers ogg-stream)]
       (if (empty? @pages)
         nil
-        (let [page (first @pages)
-              frames (- (:position page) @position)]
+        (let [page (first @pages)]
           (alter pages rest)
-          (ref-set position (:position page))
-          (assoc page :frames frames))))))
+          (if (header? page)
+            (do 
+              (alter next-headers conj page)
+              (ref-set position 0)
+              (assoc page :frames 0))
+            (let [frames (- (:position page) @position)]
+              (when (not (empty? @next-headers))
+                (ref-set headers @next-headers)
+                (ref-set next-headers []))
+              (ref-set position (:position page))
+              (assoc page :frames frames))))))))
